@@ -6,6 +6,11 @@
 
 ---
 
+🇸🇦 **هل تتحدث العربية؟** ويندوز لا يدعم التعرف على الصوت باللغة العربية — هذا البرنامج يحل تلك المشكلة.
+[اقرأ التوثيق بالعربية ←](README.ar.md)
+
+---
+
 ## 🤔 Why does this exist?
 
 **Windows speech recognition doesn't support Arabic.**
