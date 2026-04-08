@@ -13,9 +13,9 @@
 
 ## 🤔 Why does this exist?
 
-**Windows speech recognition doesn't support Arabic.**
+**Windows speech recognition does not support Arabic.**
 
-The built-in Windows STT and most dictation tools are English-only. If you write in Arabic — or switch between Arabic and English constantly — you're stuck typing manually.
+Windows includes built-in dictation that works for English, French, Spanish, German, Chinese, and more — but Arabic is not on the list. If you write in Arabic, or constantly switch between Arabic and English, you are stuck typing manually.
 
 Wsool STT was built to fix that. It uses state-of-the-art AI models (Whisper, Gemini) that handle Arabic natively, and pastes the result directly into any app — browsers, Office, chat apps, IDEs, everything.
 
@@ -154,4 +154,4 @@ MIT — free to use, modify, and distribute.
 
 ---
 
-<p align="center">Made with ❤️ by <a href="https://wsool.ai">wsool.ai</a></p>
+<p align="center">Made by <a href="https://stt.wsool.ai">wsool.ai</a> — Marketing & Automation</p>
