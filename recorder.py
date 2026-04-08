@@ -1,10 +1,17 @@
-"""Audio recorder using sounddevice — records 16kHz mono PCM."""
+"""Audio recorder using sounddevice — records 16kHz mono PCM.
+
+Thread-safe frame collection using a lock to prevent data races
+between the audio callback thread and the stop/build path.
+"""
 
 import io
 import wave
 import threading
+import logging
 import numpy as np
 import sounddevice as sd
+
+log = logging.getLogger("vtt")
 
 
 class AudioRecorder:
@@ -30,6 +37,7 @@ class AudioRecorder:
         """
         self._on_audio_chunk = on_audio_chunk
         self._frames: list[np.ndarray] = []
+        self._frames_lock = threading.Lock()
         self._stream = None
         self._recording = False
         self._lock = threading.Lock()
@@ -39,11 +47,17 @@ class AudioRecorder:
         return self._recording
 
     def start(self):
-        """Start recording from the default microphone."""
+        """Start recording from the default microphone.
+
+        Raises:
+            sd.PortAudioError: If the microphone is unavailable or busy.
+            Exception: On other audio device errors.
+        """
         with self._lock:
             if self._recording:
                 return
-            self._frames = []
+            with self._frames_lock:
+                self._frames = []
             self._recording = True
             self._stream = sd.InputStream(
                 samplerate=self.SAMPLE_RATE,
@@ -67,19 +81,24 @@ class AudioRecorder:
             return self._build_wav()
 
     def _audio_callback(self, indata, frames, time_info, status):
-        """Called by sounddevice for each audio chunk."""
+        """Called by sounddevice for each audio chunk.
+
+        Must be fast — only copies data and queues to VAD.
+        """
         if not self._recording:
             return
         chunk = indata.copy()
-        self._frames.append(chunk)
+        with self._frames_lock:
+            self._frames.append(chunk)
         if self._on_audio_chunk is not None:
             self._on_audio_chunk(chunk)
 
     def _build_wav(self) -> bytes:
         """Combine recorded frames into a WAV file in memory."""
-        if not self._frames:
-            return b""
-        audio = np.concatenate(self._frames, axis=0)
+        with self._frames_lock:
+            if not self._frames:
+                return b""
+            audio = np.concatenate(self._frames, axis=0)
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(self.CHANNELS)

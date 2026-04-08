@@ -1,7 +1,6 @@
 """Voice-to-Text Installer — Setup Wizard."""
 
 import os
-import sys
 import json
 import subprocess
 import threading
@@ -242,13 +241,6 @@ class InstallerWizard(ctk.CTk):
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
-    def _next(self):
-        if self._step == 2:  # API key step — validate first
-            self._validate_key()
-            return
-        self._step = min(self._step + 1, len(self.STEPS) - 1)
-        self._show_step(self._step)
-
     def _back(self):
         self._step = max(self._step - 1, 0)
         self._show_step(self._step)
@@ -322,10 +314,13 @@ class InstallerWizard(ctk.CTk):
         link_frame = ctk.CTkFrame(f, fg_color="transparent")
         link_frame.pack()
         ctk.CTkLabel(link_frame, text="Get a free key at:", font=ctk.CTkFont(size=12), text_color="#aaaaaa").pack(side="left")
-        ctk.CTkLabel(
-            link_frame, text=info["url"],
-            font=ctk.CTkFont(size=12), text_color="#4fc3f7", cursor="hand2",
-        ).pack(side="left", padx=5)
+        url = info["url"]
+        link_label = ctk.CTkLabel(
+            link_frame, text=url,
+            font=ctk.CTkFont(size=12, underline=True), text_color="#4fc3f7", cursor="hand2",
+        )
+        link_label.pack(side="left", padx=5)
+        link_label.bind("<Button-1>", lambda e, u=url: __import__("webbrowser").open(u))
 
         entry = ctk.CTkEntry(
             f, textvariable=self._api_key,

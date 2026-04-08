@@ -10,11 +10,10 @@ from pathlib import Path
 from config import Config
 from recorder import AudioRecorder
 from vad import SilenceDetector
-from stt import GroqSTT
+from stt import MultiProviderSTT
 from hotkeys import HotkeyManager
 from paster import paste_text
 from tray import TrayIcon
-from sounds import beep_start, beep_stop
 from history import save_transcription
 
 
@@ -47,7 +46,11 @@ class VoiceToTextApp:
         self._config = Config()
         self._validate_config()
 
-        self._stt = GroqSTT(self._config.get_api_key(), self._config.get_gemini_api_key())
+        self._stt = MultiProviderSTT(
+            groq_key=self._config.get_api_key(),
+            gemini_key=self._config.get_gemini_api_key(),
+            openai_key=self._config.get_openai_api_key(),
+        )
         self._tray = TrayIcon(
             on_quit=self._quit,
             on_toggle_language=self._on_language_changed,
@@ -95,10 +98,9 @@ class VoiceToTextApp:
             sys.exit(0)
 
     def _validate_config(self):
-        """Check that required API keys are present."""
-        key = self._config.get_api_key()
-        if not key:
-            log.error("GROQ_API_KEY not found. Set it in .env file.")
+        """Check that at least one STT provider API key is present."""
+        if not self._config.has_any_api_key():
+            log.error("No STT API key found. Set GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in .env file.")
             sys.exit(1)
 
     def _toggle_recording(self):
@@ -189,7 +191,14 @@ class VoiceToTextApp:
         """Start recording audio."""
         self._tray.set_state("recording")
         self._vad.start()
-        self._recorder.start()
+
+        try:
+            self._recorder.start()
+        except Exception as e:
+            log.error(f"[MIC] Failed to start microphone: {e}")
+            self._vad.stop()
+            self._tray.set_state("idle")
+            return
 
         # Safety: max recording duration timer
         max_dur = self._config.max_recording_duration
@@ -223,12 +232,13 @@ class VoiceToTextApp:
     def _do_transcribe(self, wav_bytes: bytes):
         """Run STT and paste result (runs in background thread)."""
         try:
-            log.info(f"[STT] Sending {len(wav_bytes)} bytes to Groq...")
+            log.info(f"[STT] Sending {len(wav_bytes)} bytes for transcription...")
             text = self._stt.transcribe(wav_bytes, language=self._tray.language)
             if text:
                 log.info(f"[OK] {text}")
                 paste_text(text)
-                save_transcription(text, self._tray.language, len(wav_bytes))
+                if self._config.save_history:
+                    save_transcription(text, self._tray.language, len(wav_bytes))
             else:
                 log.info("[EMPTY] No speech detected.")
         except Exception as e:
@@ -297,7 +307,7 @@ class VoiceToTextApp:
         log.info("=" * 50)
         log.info(f"  Record:    {self._config.hotkey_record}")
         log.info(f"  Language:  {self._config.hotkey_language}")
-        log.info(f"  Provider:  Groq Whisper")
+        log.info(f"  Provider:  {self._stt.primary_provider} (available: {', '.join(self._stt.available_providers)})")
         log.info(f"  Language:  {self._config.language}")
         log.info(f"  Silence:   {self._config.silence_duration}s auto-stop")
         log.info("=" * 50)

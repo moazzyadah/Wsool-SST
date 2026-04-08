@@ -13,7 +13,7 @@ DEFAULTS = {
     "silence_duration": 2.0,      # seconds
     "speech_threshold": 0.5,      # VAD sensitivity (0-1)
     "max_recording_duration": 120, # seconds
-    "beep_enabled": True,
+    "save_history": True,         # save transcriptions to history.json
 }
 
 # Config file location: %APPDATA%/voice-to-text/config.json (Windows)
@@ -33,14 +33,13 @@ class Config:
         if env_path:
             load_dotenv(env_path)
         else:
-            # 1) Global workspace .env (single source of truth)
-            load_dotenv(Path(__file__).parent.parent.parent / ".env")
-            # 2) Local project .env (overrides if exists)
-            load_dotenv(Path(__file__).parent / ".env", override=False)
+            # Only load the project-local .env — no ancestor probing
+            load_dotenv(Path(__file__).parent / ".env")
 
         # API keys from environment
         self.groq_api_key = os.getenv("GROQ_API_KEY", "")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
 
         # Load saved config or use defaults
         self._settings = dict(DEFAULTS)
@@ -97,13 +96,25 @@ class Config:
         return self._settings["max_recording_duration"]
 
     @property
-    def beep_enabled(self) -> bool:
-        return self._settings["beep_enabled"]
+    def save_history(self) -> bool:
+        return self._settings.get("save_history", True)
+
+    @save_history.setter
+    def save_history(self, value: bool):
+        self._settings["save_history"] = value
 
     def get_api_key(self) -> str:
-        """Get the Groq API key."""
+        """Get the primary (Groq) API key."""
         return self.groq_api_key
 
     def get_gemini_api_key(self) -> str:
         """Get the Gemini API key."""
         return self.gemini_api_key
+
+    def get_openai_api_key(self) -> str:
+        """Get the OpenAI API key."""
+        return self.openai_api_key
+
+    def has_any_api_key(self) -> bool:
+        """Check if at least one STT provider key is configured."""
+        return bool(self.groq_api_key or self.gemini_api_key or self.openai_api_key)

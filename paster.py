@@ -1,4 +1,8 @@
-"""Paste text at cursor position — supports Arabic and English."""
+"""Paste text at cursor position — supports Arabic and English.
+
+Captures the foreground window handle before clipboard operations
+and verifies it hasn't changed before sending Ctrl+V.
+"""
 
 import time
 import logging
@@ -7,14 +11,27 @@ import pyperclip
 log = logging.getLogger("vtt")
 
 
+def _get_foreground_hwnd() -> int | None:
+    """Get the current foreground window handle (Windows only)."""
+    try:
+        import ctypes
+        return ctypes.windll.user32.GetForegroundWindow()
+    except Exception:
+        return None
+
+
 def paste_text(text: str):
     """Paste text at the current cursor position in any application.
 
     Uses clipboard + Win32 SendInput for reliable Ctrl+V on Windows.
-    Falls back to pyautogui if win32 is unavailable.
+    Verifies the foreground window hasn't changed between copy and paste
+    to prevent pasting into the wrong application.
     """
     if not text:
         return
+
+    # Capture target window BEFORE touching the clipboard
+    target_hwnd = _get_foreground_hwnd()
 
     # Save current clipboard
     try:
@@ -25,6 +42,13 @@ def paste_text(text: str):
     try:
         pyperclip.copy(text)
         time.sleep(0.1)
+
+        # Verify focus hasn't changed
+        current_hwnd = _get_foreground_hwnd()
+        if target_hwnd is not None and current_hwnd != target_hwnd:
+            log.warning("[PASTE] Focus changed between copy and paste — aborting to prevent wrong-window paste.")
+            return
+
         _send_ctrl_v()
         time.sleep(0.15)
     finally:
@@ -76,10 +100,10 @@ def _send_ctrl_v_win32():
         return inp
 
     inputs = [
-        make_key(VK_CONTROL),           # Ctrl down
-        make_key(VK_V),                 # V down
-        make_key(VK_V, KEYEVENTF_KEYUP),    # V up
-        make_key(VK_CONTROL, KEYEVENTF_KEYUP),  # Ctrl up
+        make_key(VK_CONTROL),                       # Ctrl down
+        make_key(VK_V),                             # V down
+        make_key(VK_V, KEYEVENTF_KEYUP),            # V up
+        make_key(VK_CONTROL, KEYEVENTF_KEYUP),      # Ctrl up
     ]
 
     arr = (INPUT * len(inputs))(*inputs)

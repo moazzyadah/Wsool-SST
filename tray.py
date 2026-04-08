@@ -1,4 +1,8 @@
-"""System tray icon with status indicator."""
+"""System tray icon with status indicator.
+
+All icon/menu mutations are serialized through a threading lock
+to prevent cross-thread state corruption.
+"""
 
 import threading
 import time
@@ -13,6 +17,7 @@ class TrayIcon:
         - idle (gray): Waiting for hotkey
         - recording (red): Recording audio
         - processing (yellow): Sending to STT API
+        - continuous (orange): Continuous dictation mode
     """
 
     COLORS = {
@@ -32,6 +37,7 @@ class TrayIcon:
         self._blink_thread = None
         self._blink_active = False
         self._blink_colors = ["#FF3333", "#661111"]
+        self._lock = threading.Lock()
 
     def _create_icon_image(self, color: str) -> Image.Image:
         """Create a simple circular icon with the given color."""
@@ -63,50 +69,59 @@ class TrayIcon:
     def _cycle_language(self):
         """Cycle through language options."""
         cycle = ["auto", "ar", "en"]
-        idx = cycle.index(self._language) if self._language in cycle else 0
-        self._language = cycle[(idx + 1) % len(cycle)]
+        with self._lock:
+            idx = cycle.index(self._language) if self._language in cycle else 0
+            self._language = cycle[(idx + 1) % len(cycle)]
+            lang = self._language
         if self._on_toggle_language:
-            self._on_toggle_language(self._language)
+            self._on_toggle_language(lang)
         self._update_icon()
 
     def _quit(self):
         """Handle quit from tray menu."""
         if self._on_quit:
             self._on_quit()
-        if self._icon:
-            self._icon.stop()
+        with self._lock:
+            if self._icon:
+                self._icon.stop()
 
     def _update_menu(self):
         """Rebuild the tray menu (e.g. after language change)."""
-        if self._icon is not None:
-            self._icon.menu = self._build_menu()
+        with self._lock:
+            if self._icon is not None:
+                self._icon.menu = self._build_menu()
 
     def _update_icon(self):
         """Update the tray icon to reflect current state."""
-        if self._icon is not None:
-            color = self.COLORS.get(self._state, self.COLORS["idle"])
-            self._icon.icon = self._create_icon_image(color)
-            state_labels = {
-                "idle": "Ready",
-                "recording": "Recording...",
-                "processing": "Transcribing...",
-            }
-            lang_label = {"auto": "Auto", "ar": "AR", "en": "EN"}.get(self._language, "?")
-            self._icon.title = f"Voice-to-Text [{lang_label}] — {state_labels.get(self._state, '')}"
+        with self._lock:
+            if self._icon is not None:
+                color = self.COLORS.get(self._state, self.COLORS["idle"])
+                self._icon.icon = self._create_icon_image(color)
+                state_labels = {
+                    "idle": "Ready",
+                    "recording": "Recording...",
+                    "processing": "Transcribing...",
+                    "continuous": "Continuous Mode",
+                }
+                lang_label = {"auto": "Auto", "ar": "AR", "en": "EN"}.get(self._language, "?")
+                self._icon.title = f"Wsool STT [{lang_label}] — {state_labels.get(self._state, '')}"
 
     @property
     def language(self) -> str:
-        return self._language
+        with self._lock:
+            return self._language
 
     @language.setter
     def language(self, lang: str):
-        self._language = lang
+        with self._lock:
+            self._language = lang
         self._update_menu()
         self._update_icon()
 
     def set_state(self, state: str):
-        """Set tray state: 'idle', 'recording', or 'processing'."""
-        self._state = state
+        """Set tray state: 'idle', 'recording', 'processing', or 'continuous'."""
+        with self._lock:
+            self._state = state
         if state == "recording":
             self._start_blink(["#FF3333", "#661111"])
         elif state == "continuous":
@@ -117,8 +132,7 @@ class TrayIcon:
 
     def _start_blink(self, colors: list):
         """Start blinking the tray icon between two colors."""
-        self._blink_active = False
-        time.sleep(0.05)  # let previous loop exit
+        self._stop_blink()
         self._blink_active = True
         self._blink_colors = colors
         self._blink_thread = threading.Thread(target=self._blink_loop, daemon=True)
@@ -132,8 +146,10 @@ class TrayIcon:
         """Alternate between two colors every 0.5s."""
         colors = self._blink_colors
         i = 0
-        while self._blink_active and self._icon is not None:
-            self._icon.icon = self._create_icon_image(colors[i % 2])
+        while self._blink_active:
+            with self._lock:
+                if self._icon is not None:
+                    self._icon.icon = self._create_icon_image(colors[i % 2])
             i += 1
             time.sleep(0.5)
 
@@ -141,9 +157,9 @@ class TrayIcon:
         """Start the tray icon in a background thread."""
         color = self.COLORS["idle"]
         self._icon = pystray.Icon(
-            name="voice-to-text",
+            name="wsool-stt",
             icon=self._create_icon_image(color),
-            title="Voice-to-Text [Auto] — Ready",
+            title="Wsool STT [Auto] — Ready",
             menu=self._build_menu(),
         )
 
@@ -152,13 +168,18 @@ class TrayIcon:
 
     def set_tooltip(self, text: str | None):
         """Override tray tooltip. Pass None to reset to default."""
-        if self._icon:
-            if text:
-                self._icon.title = text
-            else:
-                self._update_icon()
+        with self._lock:
+            if self._icon:
+                if text:
+                    self._icon.title = text
+                else:
+                    pass  # Will be reset by next _update_icon call
+        if not text:
+            self._update_icon()
 
     def stop(self):
         """Stop the tray icon."""
-        if self._icon:
-            self._icon.stop()
+        self._stop_blink()
+        with self._lock:
+            if self._icon:
+                self._icon.stop()
