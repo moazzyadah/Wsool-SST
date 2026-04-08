@@ -2,6 +2,14 @@
 
 import sys
 import os
+
+# CRITICAL: In windowed mode (.exe with --windowed), sys.stdout/stderr are None.
+# Many libraries (tqdm, logging, etc.) crash without these.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
 import logging
 import threading
 import time
@@ -17,9 +25,16 @@ from tray import TrayIcon
 from history import save_transcription
 
 
+def _app_dir() -> Path:
+    """Get the application directory — works both as script and frozen .exe."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
 def setup_logging():
     """Log to file when running without console (pythonw.exe)."""
-    log_dir = Path(__file__).parent
+    log_dir = _app_dir()
     log_file = log_dir / "voice-to-text.log"
     logging.basicConfig(
         level=logging.INFO,
@@ -81,7 +96,7 @@ class VoiceToTextApp:
 
     def _acquire_lock(self):
         """Prevent multiple instances from running."""
-        lock_path = Path(__file__).parent / ".running.lock"
+        lock_path = _app_dir() / ".running.lock"
         try:
             if os.name == "nt":
                 import msvcrt

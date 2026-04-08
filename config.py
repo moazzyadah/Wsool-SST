@@ -1,9 +1,17 @@
 """Configuration management — loads from .env and config file."""
 
 import os
+import sys
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+
+
+def _app_dir() -> Path:
+    """Get the application directory — works both as script and frozen .exe."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent
 
 # Default config
 DEFAULTS = {
@@ -33,8 +41,11 @@ class Config:
         if env_path:
             load_dotenv(env_path)
         else:
-            # Only load the project-local .env — no ancestor probing
-            load_dotenv(Path(__file__).parent / ".env")
+            # Load .env from app directory (works as script or frozen .exe)
+            load_dotenv(_app_dir() / ".env")
+            # Also check AppData for .env written by installer
+            if os.name == "nt":
+                load_dotenv(CONFIG_DIR / ".env", override=False)
 
         # API keys from environment
         self.groq_api_key = os.getenv("GROQ_API_KEY", "")

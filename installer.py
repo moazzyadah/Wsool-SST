@@ -1,11 +1,18 @@
 """Voice-to-Text Installer — Setup Wizard."""
 
 import os
+import sys
 import json
 import subprocess
 import threading
 import winreg
 from pathlib import Path
+
+# Windowed .exe null guard
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
 
 import customtkinter as ctk
 from PIL import Image, ImageDraw
@@ -14,8 +21,15 @@ from PIL import Image, ImageDraw
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-APP_DIR = Path(__file__).parent
-VENV_PYTHON = APP_DIR / "venv" / "Scripts" / "pythonw.exe"
+
+def _app_dir() -> Path:
+    """Get the application directory — works both as script and frozen .exe."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
+APP_DIR = _app_dir()
 STARTUP_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "WsoolSTT"
 
@@ -97,11 +111,8 @@ def test_key(provider_name: str, key: str) -> bool:
     return False
 
 
-def save_env(provider_name: str, api_key: str):
-    """Write API key to .env file."""
-    env_key = PROVIDERS[provider_name]["env_key"]
-    env_path = APP_DIR / ".env"
-
+def _write_env_file(env_path: Path, env_key: str, api_key: str):
+    """Write or update a key in a .env file."""
     lines = []
     if env_path.exists():
         lines = env_path.read_text(encoding="utf-8").splitlines()
@@ -115,7 +126,20 @@ def save_env(provider_name: str, api_key: str):
     if not updated:
         lines.append(f"{env_key}={api_key}")
 
+    env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def save_env(provider_name: str, api_key: str):
+    """Write API key to .env — both local and AppData for .exe compatibility."""
+    env_key = PROVIDERS[provider_name]["env_key"]
+
+    # 1. Local .env (next to installer / exe)
+    _write_env_file(APP_DIR / ".env", env_key, api_key)
+
+    # 2. AppData .env (where main app looks when running as installed .exe)
+    appdata_dir = Path(os.environ.get("APPDATA", "")) / "voice-to-text"
+    _write_env_file(appdata_dir / ".env", env_key, api_key)
 
 
 def save_config(language: str, provider_name: str, hotkey_record: str, hotkey_language: str):
@@ -139,11 +163,22 @@ def save_config(language: str, provider_name: str, hotkey_record: str, hotkey_la
 
 
 def add_to_startup():
-    """Add app to Windows startup registry."""
+    """Add app to Windows startup registry — uses .exe if available, else .vbs."""
     try:
-        vbs = APP_DIR / "run_silent.vbs"
+        exe_path = APP_DIR / "WsoolSTT.exe"
+        wsool_dir = APP_DIR.parent / "WsoolSTT"
+        exe_in_sibling = wsool_dir / "WsoolSTT.exe"
+
+        if exe_path.exists():
+            startup_cmd = f'"{exe_path}"'
+        elif exe_in_sibling.exists():
+            startup_cmd = f'"{exe_in_sibling}"'
+        else:
+            vbs = APP_DIR / "run_silent.vbs"
+            startup_cmd = f'wscript.exe "{vbs}"'
+
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_KEY, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, f'wscript.exe "{vbs}"')
+            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, startup_cmd)
         return True
     except Exception:
         return False
@@ -475,7 +510,7 @@ class InstallerWizard(ctk.CTk):
                 "Voice-to-Text is ready.\n\n"
                 "Ctrl+Alt+Space  →  Start / Stop recording\n"
                 "Ctrl+Alt+L         →  Switch language\n\n"
-                'Run "run_silent.vbs" to start the app.'
+                'Click "Launch App" to start.'
             ),
             font=ctk.CTkFont(size=13),
             text_color="#cccccc",
@@ -486,8 +521,20 @@ class InstallerWizard(ctk.CTk):
         self._btn_next.configure(text="Launch App →", command=self._launch_and_close)
 
     def _launch_and_close(self):
-        vbs = APP_DIR / "run_silent.vbs"
-        subprocess.Popen(["wscript.exe", str(vbs)], shell=False)
+        # Try WsoolSTT.exe first (frozen build), fall back to vbs script
+        exe_path = APP_DIR / "WsoolSTT.exe"
+        wsool_dir = APP_DIR.parent / "WsoolSTT"  # If installer is in separate dir
+        exe_in_sibling = wsool_dir / "WsoolSTT.exe"
+
+        if exe_path.exists():
+            subprocess.Popen([str(exe_path)], shell=False)
+        elif exe_in_sibling.exists():
+            subprocess.Popen([str(exe_in_sibling)], shell=False)
+        else:
+            # Development mode — use vbs script
+            vbs = APP_DIR / "run_silent.vbs"
+            if vbs.exists():
+                subprocess.Popen(["wscript.exe", str(vbs)], shell=False)
         self.after(500, self.destroy)
 
     # ── Override next for install step ────────────────────────────────────────

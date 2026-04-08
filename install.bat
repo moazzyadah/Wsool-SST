@@ -1,9 +1,9 @@
 @echo off
-title Voice-to-Text Installer
+title Wsool STT — Installation
 cd /d "%~dp0"
 
 echo ============================================
-echo   Voice-to-Text — Installation
+echo   Wsool STT — Installation
 echo ============================================
 echo.
 
@@ -23,16 +23,20 @@ call venv\Scripts\activate.bat
 
 :: Install deps
 echo [2/3] Installing dependencies...
-pip install -r requirements.txt
+pip install -r requirements.txt --quiet
 
-:: Download Silero VAD model (first run cache)
-echo [3/3] Pre-downloading VAD model...
-python -c "import torch; torch.hub.load('snakers4/silero-vad', 'silero_vad', trust_repo=True); print('VAD model ready.')"
+:: Verify ONNX model is available
+echo [3/3] Verifying VAD model...
+python -c "from silero_vad import load_silero_vad; load_silero_vad(onnx=True); print('VAD model ready (ONNX).')"
 
 echo.
 echo ============================================
 echo   Installation complete!
-echo   Edit .env to add your GROQ_API_KEY
-echo   Then run: run.bat
+echo.
+echo   Option 1: Run the Setup Wizard:
+echo     python installer.py
+echo.
+echo   Option 2: Edit .env manually then run:
+echo     run.bat
 echo ============================================
 pause
