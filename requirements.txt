@@ -1,0 +1,28 @@
+# Audio recording
+sounddevice==0.5.1
+numpy>=1.24.0
+
+# Voice Activity Detection
+silero-vad==5.1.2
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Global hotkeys
+pynput>=1.7.6
+
+# Text pasting
+pyperclip>=1.9.0
+pyautogui>=0.9.54
+
+# System tray
+pystray>=0.19.5
+Pillow>=10.0.0
+
+# Audio feedback
+playsound3>=2.0.0
+
+# STT APIs
+httpx>=0.27.0
+
+# Config
+python-dotenv>=1.0.0
